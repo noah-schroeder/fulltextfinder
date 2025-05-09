@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Article Downloader Helper (Vertical Actions)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .tooltip {
+            position: relative;
+            display: inline-block;
+        }
+        .tooltip .tooltiptext {
+            visibility: hidden;
+            width: 160px; 
+            background-color: #555;
+            color: #fff;
+            text-align: center;
+            border-radius: 6px;
+            padding: 5px;
+            position: absolute;
+            z-index: 1;
+            bottom: 125%; 
+            left: 50%;
+            margin-left: -80px; 
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .tooltip .tooltiptext::after {
+            content: "";
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -5px;
+            border-width: 5px;
+            border-style: solid;
+            border-color: #555 transparent transparent transparent;
+        }
+        .tooltip:hover .tooltiptext {
+            visibility: visible;
+            opacity: 1;
+        }
+        td, th {
+            max-width: 250px; 
+            overflow-wrap: break-word;
+            word-wrap: break-word;
+            hyphens: auto;
+            vertical-align: top; /* Align content to the top of the cell */
+        }
+        th:nth-child(1), td:nth-child(1) { max-width: 280px; } /* Title */
+        th:nth-child(2), td:nth-child(2) { max-width: 180px; } /* Authors */
+        th:nth-child(4), td:nth-child(4) { max-width: 180px; } /* Suggested Filename */
+        th:nth-child(5), td:nth-child(5) { max-width: 200px; min-width: 180px; } /* Actions - Can be narrower for vertical stack */
+        
+        .button-disabled {
+            background-color: #cbd5e1; 
+            color: #475569; 
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+        .button-disabled:hover {
+            background-color: #cbd5e1; 
+        }
+        .action-button {
+             display: inline-block; /* Changed to inline-block for better stacking control if not full width */
+             width: 100%; /* Make buttons take full width of their container cell if items-stretch is used, or adjust as needed */
+             box-sizing: border-box; /* Include padding and border in the element's total width and height */
+             text-align: center;
+             text-decoration: none;
+             color: white;
+             font-size: 0.75rem; 
+             font-weight: 600; 
+             padding-top: 0.25rem; 
+             padding-bottom: 0.25rem;
+             padding-left: 0.5rem; 
+             padding-right: 0.5rem; 
+             border-radius: 0.375rem; 
+             transition-property: background-color, border-color, color, fill, stroke, opacity, box-shadow, transform;
+             transition-duration: 150ms;
+             transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 p-4 md:p-8">
+    <div class="container mx-auto max-w-6xl bg-white p-6 rounded-lg shadow-xl">
+        <header class="mb-8 text-center">
+            <h1 class="text-3xl font-bold text-indigo-600">Full Text PDF Finder</h1>
+            <p class="text-gray-600 mt-2">Stop wasting hours locating full text PDFs. Upload your CSV with references, get suggested filenames, and links to find full texts.</p>
+        </header>
+
+        <div class="mb-6 p-4 bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 rounded-md">
+            <h2 class="font-bold text-lg mb-2">Instructions & Notes:</h2>
+            <ul class="list-disc list-inside space-y-1">
+                <li>This tool helps you find and organize articles but **cannot automatically download them to a specific folder** due to browser security.</li>
+                <li>For best results and the fastest workflow, include the DOI and use the Unpaywall feature to search for PDFs.</li>
+                <li>File Requirements: Upload a .csv file that contains columns labeled title (or Title), authors (or Authors), doi (or DOI), and year (or Year). These are used to help locate studies.</li>
+                <li>For one-click PDF access, we recommend using <a href="https://unpaywall.org/" target="_blank" rel="noopener noreferrer" class="text-indigo-600 hover:text-indigo-800 underline">Unpaywall</a>. At the time this page was created, API access was free, but you have to provide an email address. Here is a link to the API page so you can check requirements: <a href="https://unpaywall.org/products/api" target="_blank" rel="noopener noreferrer" class="text-indigo-600 hover:text-indigo-800 underline">Unpaywall API Information</a></li>
+                <li>The "Find PDF (Scholar)" button will take you to a Google Scholar search page optimized for locating PDFs.</li>
+            </ul>
+        </div>
+
+        <div class="mb-6">
+            <label for="userEmail" class="block text-sm font-medium text-gray-700 mb-1">Your Email (Optional, but used for Unpaywall API - It will be used for Unpaywall API requests to automatically find Open Access PDFs. Unpaywall uses this to monitor API usage and notify about changes. Your email will be visible in your browser's network requests but not to other users of this page):</label>
+            <input type="email" id="userEmail" name="userEmail" placeholder="you@example.com" class="block w-full md:w-1/2 p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm mb-4">
+        </div>
+
+        <div class="mb-6">
+            <label for="csvFile" class="block text-sm font-medium text-gray-700 mb-1">Upload CSV File:</label>
+            <input type="file" id="csvFile" accept=".csv" class="block w-full text-sm text-gray-500
+                file:mr-4 file:py-2 file:px-4
+                file:rounded-md file:border-0
+                file:text-sm file:font-semibold
+                file:bg-indigo-50 file:text-indigo-700
+                hover:file:bg-indigo-100
+                cursor-pointer
+            "/>
+        </div>
+
+        <div id="statusMessages" class="mb-4 text-sm"></div>
+
+        <div class="overflow-x-auto">
+            <table id="articlesTable" class="min-w-full divide-y divide-gray-200 border border-gray-300 rounded-lg">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Title</th>
+                        <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Authors</th>
+                        <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Year</th>
+                        <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Suggested Filename</th>
+                        <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200">
+                    </tbody>
+            </table>
+        </div>
+         <p id="rowCount" class="mt-4 text-sm text-gray-600"></p>
+    </div>
+
+    <script>
+        const csvFileInput = document.getElementById('csvFile');
+        const articlesTableBody = document.querySelector('#articlesTable tbody');
+        const statusMessagesDiv = document.getElementById('statusMessages');
+        const rowCountP = document.getElementById('rowCount');
+        const userEmailInput = document.getElementById('userEmail');
+        let currentUserEmail = '';
+
+        userEmailInput.addEventListener('input', (event) => {
+            currentUserEmail = event.target.value.trim();
+        });
+        csvFileInput.addEventListener('change', handleFileSelect);
+
+        function isValidEmail(email) {
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            return emailRegex.test(email);
+        }
+
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (file) {
+                if (!currentUserEmail || !isValidEmail(currentUserEmail)) {
+                    statusMessagesDiv.innerHTML = `<span class="text-red-500">Please enter a valid email address before uploading a file.</span>`;
+                    csvFileInput.value = '';
+                    return;
+                }
+                statusMessagesDiv.textContent = `Processing ${file.name}...`;
+                articlesTableBody.innerHTML = ''; 
+                rowCountP.textContent = '';
+                Papa.parse(file, {
+                    header: true, skipEmptyLines: true, complete: processCSVResults, error: handleCSVError
+                });
+            }
+        }
+
+        function processCSVResults(results) {
+            if (results.errors.length > 0) {
+                console.error("CSV Parsing Errors:", results.errors);
+                statusMessagesDiv.innerHTML = `<span class="text-red-500">Error parsing CSV: ${results.errors.map(e => e.message).join(', ')}</span>`;
+                return;
+            }
+            const articles = results.data;
+            if (articles.length === 0) {
+                statusMessagesDiv.textContent = 'No data found in CSV.';
+                return;
+            }
+            statusMessagesDiv.textContent = `Successfully parsed ${articles.length} articles. Populating table and checking Unpaywall...`;
+            rowCountP.textContent = `Displaying ${articles.length} articles.`;
+
+            const headers = Object.keys(articles[0]);
+            const titleKey = headers.find(h => h.toLowerCase() === 'title') || 'Title';
+            const authorsKey = headers.find(h => h.toLowerCase() === 'authors') || 'Authors';
+            const doiKey = headers.find(h => h.toLowerCase() === 'doi') || 'DOI'; 
+            const yearKey = headers.find(h => h.toLowerCase() === 'year') || 'Year';
+
+            articles.forEach((article, index) => {
+                const title = (article[titleKey] || 'N/A').trim();
+                const authors = (article[authorsKey] || 'N/A').trim();
+                const doiFromCsv = (article[doiKey] || '').trim(); 
+                const year = (article[yearKey] || '').trim();
+                const filename = generateFilename(authors, year);
+                addArticleToTable(title, authors, doiFromCsv, year, filename, index);
+            });
+        }
+        
+        function handleCSVError(error) {
+            console.error('CSV Parsing Error:', error);
+            statusMessagesDiv.innerHTML = `<span class="text-red-500">Error reading CSV file: ${error.message}</span>`;
+        }
+
+        function parseAuthors(authorsString) {
+            if (!authorsString || typeof authorsString !== 'string') return [];
+            const individualAuthors = authorsString.split(';').map(a => a.trim());
+            const lastNames = [];
+            for (const author of individualAuthors) {
+                if (!author) continue;
+                const commaIndex = author.indexOf(',');
+                if (commaIndex !== -1) {
+                    lastNames.push(author.substring(0, commaIndex).trim());
+                } else {
+                    const parts = author.split(' ').map(p => p.trim()).filter(p => p);
+                    if (parts.length > 0) lastNames.push(parts[parts.length -1]); 
+                }
+            }
+            return lastNames.map(name => name.replace(/[^a-zA-Z0-9]/g, ''));
+        }
+
+        function generateFilename(authors, year) {
+            const parsedAuthors = parseAuthors(authors); 
+            let namePart = "";
+            if (parsedAuthors.length > 0) namePart += parsedAuthors[0]; 
+            if (parsedAuthors.length > 1) namePart += parsedAuthors[1]; 
+            if (!namePart) namePart = "UnknownAuthors";
+            const yearPart = year && String(year).trim().match(/^\d{4}$/) ? String(year).trim() : "";
+            return `${namePart}${yearPart}.pdf`;
+        }
+
+        async function checkAndSetUnpaywallButton(doi, buttonElement) {
+            buttonElement.textContent = 'Checking Unpaywall...';
+            buttonElement.classList.add('button-disabled');
+            buttonElement.classList.add('bg-yellow-500', 'hover:bg-yellow-600');
+            buttonElement.title = "Attempting to find an Open Access PDF via Unpaywall...";
+
+            const unpaywallApiUrl = `https://api.unpaywall.org/v2/${encodeURIComponent(doi)}?email=${encodeURIComponent(currentUserEmail)}`;
+            
+            try {
+                const response = await fetch(unpaywallApiUrl);
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => null);
+                    console.error('Unpaywall API error:', response.status, errorData);
+                    buttonElement.textContent = `Unpaywall Error ${response.status}`;
+                    buttonElement.title = `Unpaywall API error: ${response.statusText}. Check console.`;
+                    buttonElement.classList.remove('bg-yellow-500', 'hover:bg-yellow-600');
+                    buttonElement.classList.add('bg-red-500', 'hover:bg-red-600');
+                    return;
+                }
+                const data = await response.json();
+                buttonElement.classList.remove('bg-yellow-500', 'hover:bg-yellow-600');
+
+                if (data && data.best_oa_location && data.best_oa_location.url_for_pdf) {
+                    const pdfUrl = data.best_oa_location.url_for_pdf;
+                    const linkElement = document.createElement('a');
+                    linkElement.href = pdfUrl;
+                    linkElement.target = '_blank';
+                    linkElement.rel = 'noopener noreferrer';
+                    linkElement.className = 'action-button bg-emerald-500 hover:bg-emerald-600 tooltip';
+                    linkElement.textContent = 'Open PDF (Unpaywall)';
+                    const tooltipSpan = document.createElement('span');
+                    tooltipSpan.className = 'tooltiptext';
+                    tooltipSpan.textContent = `Direct PDF: ${pdfUrl.substring(0,30)}...`;
+                    linkElement.appendChild(tooltipSpan);
+                    buttonElement.replaceWith(linkElement);
+                } else {
+                    buttonElement.textContent = 'No OA PDF (Unpaywall)';
+                    buttonElement.title = 'Unpaywall did not find an Open Access PDF for this DOI.';
+                    buttonElement.classList.add('bg-slate-400', 'hover:bg-slate-500');
+                }
+            } catch (error) {
+                console.error('Error fetching from Unpaywall:', error);
+                buttonElement.textContent = 'API Error (Unpaywall)';
+                buttonElement.title = 'Failed to fetch from Unpaywall. Check console.';
+                buttonElement.classList.remove('bg-yellow-500', 'hover:bg-yellow-600');
+                buttonElement.classList.add('bg-red-500', 'hover:bg-red-600');
+            }
+        }
+
+        function addArticleToTable(title, authors, doi, year, filename, rowIndex) {
+            const row = articlesTableBody.insertRow();
+            row.className = rowIndex % 2 === 0 ? 'bg-white' : 'bg-gray-50';
+
+            row.insertCell().textContent = title || 'N/A';
+            row.insertCell().textContent = authors || 'N/A'; 
+            row.insertCell().textContent = year || 'N/A';
+            
+            const filenameCell = row.insertCell();
+            filenameCell.className = "px-4 py-2"; // Simpler class for filename cell
+            const filenameText = document.createElement('span');
+            filenameText.textContent = filename;
+            filenameText.className = "truncate block mb-1"; // Block for stacking copy button below
+            filenameCell.appendChild(filenameText);
+
+            const copyButton = document.createElement('button');
+            copyButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-clipboard" viewBox="0 0 16 16"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3z"/></svg> Copy`;
+            copyButton.className = "p-1 text-xs text-indigo-600 hover:text-indigo-800 tooltip border border-indigo-300 rounded hover:bg-indigo-50";
+            const tooltipText = document.createElement('span');
+            tooltipText.className = 'tooltiptext';
+            tooltipText.textContent = 'Copy Filename';
+            copyButton.appendChild(tooltipText);
+            copyButton.onclick = () => { 
+                navigator.clipboard.writeText(filename)
+                    .then(() => {
+                        tooltipText.textContent = 'Copied!';
+                        setTimeout(() => { tooltipText.textContent = 'Copy Filename'; }, 2000);
+                    })
+                    .catch(err => {
+                        console.error('Failed to copy filename: ', err);
+                        tooltipText.textContent = 'Failed to copy';
+                         setTimeout(() => { tooltipText.textContent = 'Copy Filename'; }, 2000);
+                    });
+            };
+            filenameCell.appendChild(copyButton);
+
+            // Actions Column - Modified for vertical stacking
+            const actionsCell = row.insertCell();
+            // Tailwind classes for vertical flex layout, spacing between items, and aligning items to the start (left)
+            actionsCell.className = "px-4 py-2 flex flex-col space-y-1 items-start";
+
+            // 1. Unpaywall Button
+            const unpaywallButton = document.createElement('button'); 
+            unpaywallButton.type = 'button';
+            unpaywallButton.className = 'action-button tooltip w-full'; // Added w-full for consistent width
+            const unpaywallTooltip = document.createElement('span');
+            unpaywallTooltip.className = 'tooltiptext';
+            unpaywallButton.appendChild(unpaywallTooltip); 
+
+            if (!doi) {
+                unpaywallButton.textContent = 'Unpaywall (No DOI)';
+                unpaywallButton.classList.add('button-disabled', 'bg-slate-400');
+                unpaywallTooltip.textContent = 'Unpaywall requires a DOI.';
+            } else if (!currentUserEmail || !isValidEmail(currentUserEmail)) {
+                unpaywallButton.textContent = 'Unpaywall (No Email)';
+                unpaywallButton.classList.add('button-disabled', 'bg-slate-400');
+                unpaywallTooltip.textContent = 'Valid email required for Unpaywall.';
+            } else {
+                checkAndSetUnpaywallButton(doi, unpaywallButton); 
+            }
+            actionsCell.appendChild(unpaywallButton);
+
+            // 2. DOI Link
+            if (doi) { 
+                let doiUrl = ''; 
+                const lowerDoi = doi.toLowerCase();
+                if (lowerDoi.startsWith('http://') || lowerDoi.startsWith('https://')) {
+                    if (lowerDoi.includes('doi.org/')) doiUrl = doi; 
+                    else doiUrl = `https://doi.org/${doi.replace(/^https?:\/\/[^/]+\//i, '')}`; 
+                } else if (lowerDoi.startsWith('doi:')) {
+                    doiUrl = `https://doi.org/${doi.substring(4)}`; 
+                } else {
+                    doiUrl = `https://doi.org/${doi}`;
+                }
+                try {
+                    const urlObj = new URL(doiUrl);
+                    if (urlObj.protocol !== "https:" && urlObj.protocol !== "http:") throw new Error("Invalid protocol");
+                    if (!urlObj.hostname.endsWith('doi.org') && !lowerDoi.startsWith('http')) {
+                        urlObj.hostname = 'doi.org';
+                        urlObj.pathname = `/${urlObj.pathname.replace(/^\//, '')}`;
+                    }
+                    doiUrl = urlObj.toString();
+                } catch (e) {
+                    console.warn("Could not parse or secure DOI URL:", doi, e);
+                    doiUrl = `https://doi.org/${encodeURIComponent(doi.replace(/^doi:/i, ''))}`; 
+                }
+                const doiLink = document.createElement('a');
+                doiLink.href = doiUrl;
+                doiLink.textContent = 'DOI Link';
+                doiLink.target = '_blank';
+                doiLink.rel = "noopener noreferrer"; 
+                doiLink.className = 'action-button bg-blue-500 hover:bg-blue-600 tooltip w-full'; // Added w-full
+                const doiTooltip = document.createElement('span');
+                doiTooltip.className = 'tooltiptext';
+                doiTooltip.textContent = 'Open DOI link in new tab';
+                doiLink.appendChild(doiTooltip);
+                actionsCell.appendChild(doiLink);
+            }
+
+            // 3. Find PDF (Scholar) Button
+            const actualQueryContent = (title && title.toLowerCase() !== 'n/a') ? title : "academic article";
+            const pdfScholarLinkButton = document.createElement('a');
+            pdfScholarLinkButton.href = `https://scholar.google.com/scholar?q=${encodeURIComponent(actualQueryContent)}&as_filetype=pdf`;
+            pdfScholarLinkButton.textContent = 'Find PDF (Scholar)';
+            pdfScholarLinkButton.target = '_blank';
+            pdfScholarLinkButton.rel = "noopener noreferrer";
+            pdfScholarLinkButton.className = 'action-button bg-green-500 hover:bg-green-600 tooltip w-full'; // Added w-full
+            const pdfScholarTooltip = document.createElement('span');
+            pdfScholarTooltip.className = 'tooltiptext';
+            pdfScholarTooltip.textContent = 'Search Scholar for PDFs. Click [PDF] on Scholar page.';
+            pdfScholarLinkButton.appendChild(pdfScholarTooltip);
+            actionsCell.appendChild(pdfScholarLinkButton);
+        }
+    </script>
+</body>
+</html>
